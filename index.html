@@ -641,7 +641,7 @@
 
 <script>
 // ══════════════════════ GOOGLE SHEETS CONFIG ══════════════════════
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxs4tp1zFLnM8yVJOreXM3DCIaa8Xc2iDUXujoOXQmGL1_3WloWQWG9stLw2N4tQkz6TQ/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxp1xCTzRW4BKQaEslGotZbjk2ntVOLuOvQ8y_jIqMEgYFdGi8DZo1M9NxDAguTxyhg4Q/exec';
 
 // ══════════════════════ STATE ══════════════════════
 const STORAGE_CONFIG = 'lunacore_avail_config';
@@ -661,25 +661,46 @@ let selections = {};
 
 // ══════════════════════ GOOGLE SHEETS FUNCTIONS ══════════════════════
 async function loadResponses() {
-  try {
-    const res = await fetch(SCRIPT_URL + '?action=get');
-    if (res.ok) responses = await res.json();
-  } catch (e) { console.error('Load error:', e); }
+  // Dashboard reads from Google Sheet directly - we'll handle this via iframe too
+  responses = [];
 }
 
-async function saveResponse(entry) {
-  try {
-    var dataStr = encodeURIComponent(JSON.stringify({
-      name: entry.name,
-      availability: entry.availability,
-      notes: entry.notes
-    }));
-    const res = await fetch(SCRIPT_URL + '?data=' + dataStr);
-    return true;
-  } catch (e) {
-    alert('Connection error: ' + e.message);
-    return false;
-  }
+function saveResponse(entry) {
+  return new Promise(function(resolve) {
+    try {
+      var iframe = document.createElement('iframe');
+      iframe.name = 'submitFrame';
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+
+      var form = document.createElement('form');
+      form.method = 'POST';
+      form.action = SCRIPT_URL;
+      form.target = 'submitFrame';
+
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'data';
+      input.value = JSON.stringify({
+        name: entry.name,
+        availability: entry.availability,
+        notes: entry.notes
+      });
+      form.appendChild(input);
+
+      document.body.appendChild(form);
+      form.submit();
+
+      setTimeout(function() {
+        document.body.removeChild(form);
+        document.body.removeChild(iframe);
+        resolve(true);
+      }, 2000);
+    } catch (e) {
+      alert('Connection error: ' + e.message);
+      resolve(false);
+    }
+  });
 }
 
 // ══════════════════════ INIT ══════════════════════
