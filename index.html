@@ -640,74 +640,72 @@
 </div>
 
 <script>
-// ══════════════════════ GOOGLE SHEETS CONFIG ══════════════════════
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxp1xCTzRW4BKQaEslGotZbjk2ntVOLuOvQ8y_jIqMEgYFdGi8DZo1M9NxDAguTxyhg4Q/exec';
+// ══════════════════════ AIRTABLE CONFIG ══════════════════════
+var AIRTABLE_TOKEN = 'patby8NPN6mXL2GOo.a72b306752346725ebf548785aba5f278306a8493d68505eefe500043c83d041';
+var AIRTABLE_BASE = 'appRaRNXYvD4zDLh7';
+var AIRTABLE_TABLE = 'tbl7dHr5GFcuIvp0o';
+var AIRTABLE_URL = 'https://api.airtable.com/v0/' + AIRTABLE_BASE + '/' + AIRTABLE_TABLE;
 
 // ══════════════════════ STATE ══════════════════════
-const STORAGE_CONFIG = 'lunacore_avail_config';
-const ADMIN_PIN = '1234';
+var STORAGE_CONFIG = 'lunacore_avail_config';
+var ADMIN_PIN = '1234';
 
-let config = {
+var config = {
   weekendLabel: 'April 2 & 4\u20135, 2026',
   days: [
-    { date: 'Wednesday, April 2', slots: ['6:00 PM \u2013 10:00 PM'] },
-    { date: 'Saturday, April 4', slots: ['2:00 PM \u2013 5:00 PM', '5:00 PM \u2013 10:00 PM'] },
-    { date: 'Sunday, April 5', slots: ['2:00 PM \u2013 5:00 PM', '5:00 PM \u2013 10:00 PM'] }
+    { date: 'Wednesday, April 2', slots: ['6:00 PM \u2013 10:00 PM'], field: 'Wednesday April 2' },
+    { date: 'Saturday, April 4', slots: ['2:00 PM \u2013 5:00 PM', '5:00 PM \u2013 10:00 PM'], field: 'Saturday April 4' },
+    { date: 'Sunday, April 5', slots: ['2:00 PM \u2013 5:00 PM', '5:00 PM \u2013 10:00 PM'], field: 'Sunday April 5' }
   ]
 };
 
-let responses = [];
-let selections = {};
+var responses = [];
+var selections = {};
 
-// ══════════════════════ GOOGLE SHEETS FUNCTIONS ══════════════════════
+// ══════════════════════ AIRTABLE FUNCTIONS ══════════════════════
 async function loadResponses() {
-  // Dashboard reads from Google Sheet directly - we'll handle this via iframe too
-  responses = [];
+  try {
+    var res = await fetch(AIRTABLE_URL + '?sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc', {
+      headers: { 'Authorization': 'Bearer ' + AIRTABLE_TOKEN }
+    });
+    if (res.ok) {
+      var json = await res.json();
+      responses = json.records.map(function(r) { return r.fields; });
+    }
+  } catch (e) { console.error('Load error:', e); }
 }
 
-function saveResponse(entry) {
-  return new Promise(function(resolve) {
-    try {
-      var iframe = document.createElement('iframe');
-      iframe.name = 'submitFrame';
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
+async function saveResponse(entry) {
+  try {
+    var fields = { 'Name': entry.name };
+    config.days.forEach(function(day) {
+      var avail = entry.availability[day.date];
+      fields[day.field] = avail ? avail.join(', ') : '';
+    });
+    fields['Notes'] = entry.notes || '';
 
-      var form = document.createElement('form');
-      form.method = 'POST';
-      form.action = SCRIPT_URL;
-      form.target = 'submitFrame';
-
-      var input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = 'data';
-      input.value = JSON.stringify({
-        name: entry.name,
-        availability: entry.availability,
-        notes: entry.notes
-      });
-      form.appendChild(input);
-
-      document.body.appendChild(form);
-      form.submit();
-
-      setTimeout(function() {
-        document.body.removeChild(form);
-        document.body.removeChild(iframe);
-        resolve(true);
-      }, 2000);
-    } catch (e) {
-      alert('Connection error: ' + e.message);
-      resolve(false);
-    }
-  });
+    var res = await fetch(AIRTABLE_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + AIRTABLE_TOKEN,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ fields: fields })
+    });
+    if (res.ok) return true;
+    var errText = await res.text();
+    alert('Error: ' + errText);
+    return false;
+  } catch (e) {
+    alert('Connection error: ' + e.message);
+    return false;
+  }
 }
 
 // ══════════════════════ INIT ══════════════════════
 async function init() {
-  const savedConfig = localStorage.getItem(STORAGE_CONFIG);
+  var savedConfig = localStorage.getItem(STORAGE_CONFIG);
   if (savedConfig) config = JSON.parse(savedConfig);
-
   renderDayCards();
   updateBadges();
   document.getElementById('nameInput').addEventListener('input', checkFormValid);
@@ -859,33 +857,29 @@ function renderDashboard() {
     var slotsHtml = '';
     day.slots.forEach(function(slot) {
       var available = responses.filter(function(r) {
-        var dayKey = day.date.toLowerCase().indexOf('wed') >= 0 ? 'wednesday' :
-                     day.date.toLowerCase().indexOf('sat') >= 0 ? 'saturday' : 'sunday';
-        return r[dayKey] && r[dayKey].indexOf(slot) >= 0;
+        return r[day.field] && r[day.field].indexOf(slot) >= 0;
       });
-      slotsHtml += '<div class="slot-summary"><div class="slot-summary-header"><span class="slot-summary-name">' + slot + '</span><span class="slot-summary-count">' + available.length + ' available</span></div><div class="name-chips">' + (available.length ? available.map(function(r) { return '<span class="chip">' + r.name + '</span>'; }).join('') : '<span class="chip-empty">No responses yet</span>') + '</div></div>';
+      slotsHtml += '<div class="slot-summary"><div class="slot-summary-header"><span class="slot-summary-name">' + slot + '</span><span class="slot-summary-count">' + available.length + ' available</span></div><div class="name-chips">' + (available.length ? available.map(function(r) { return '<span class="chip">' + r.Name + '</span>'; }).join('') : '<span class="chip-empty">No responses yet</span>') + '</div></div>';
     });
     var unavail = responses.filter(function(r) {
-      var dayKey = day.date.toLowerCase().indexOf('wed') >= 0 ? 'wednesday' :
-                   day.date.toLowerCase().indexOf('sat') >= 0 ? 'saturday' : 'sunday';
-      return r[dayKey] && r[dayKey].indexOf('NOT AVAILABLE') >= 0;
+      return r[day.field] && r[day.field].indexOf('NOT AVAILABLE') >= 0;
     });
     if (unavail.length) {
-      slotsHtml += '<div class="slot-summary"><div class="slot-summary-header"><span class="slot-summary-name" style="color:var(--red)">Not Available</span><span class="slot-summary-count" style="color:var(--red)">' + unavail.length + '</span></div><div class="name-chips">' + unavail.map(function(r) { return '<span class="chip red">' + r.name + '</span>'; }).join('') + '</div></div>';
+      slotsHtml += '<div class="slot-summary"><div class="slot-summary-header"><span class="slot-summary-name" style="color:var(--red)">Not Available</span><span class="slot-summary-count" style="color:var(--red)">' + unavail.length + '</span></div><div class="name-chips">' + unavail.map(function(r) { return '<span class="chip red">' + r.Name + '</span>'; }).join('') + '</div></div>';
     }
     summaryHtml += '<div class="dash-day"><div class="day-name">' + day.date + '</div>' + slotsHtml + '</div>';
   });
   document.getElementById('dashSlotSummary').innerHTML = summaryHtml;
 
   if (responses.length) {
-    var sorted = responses.slice().sort(function(a, b) { return a.name.localeCompare(b.name); });
+    var sorted = responses.slice().sort(function(a, b) { return (a.Name || '').localeCompare(b.Name || ''); });
     var respHtml = '<div class="section-title" style="margin-top:20px;">All Responses</div>';
     sorted.forEach(function(r) {
       var lines = '';
-      if (r.wednesday) lines += '<div class="response-slots"><span class="response-day">Wednesday:</span> ' + r.wednesday + '</div>';
-      if (r.saturday) lines += '<div class="response-slots"><span class="response-day">Saturday:</span> ' + r.saturday + '</div>';
-      if (r.sunday) lines += '<div class="response-slots"><span class="response-day">Sunday:</span> ' + r.sunday + '</div>';
-      respHtml += '<div class="response-card"><div class="response-name">' + r.name + '</div>' + lines + (r.notes ? '<div class="response-notes">"' + r.notes + '"</div>' : '') + '</div>';
+      config.days.forEach(function(day) {
+        if (r[day.field]) lines += '<div class="response-slots"><span class="response-day">' + day.date + ':</span> ' + r[day.field] + '</div>';
+      });
+      respHtml += '<div class="response-card"><div class="response-name">' + r.Name + '</div>' + lines + (r.Notes ? '<div class="response-notes">"' + r.Notes + '"</div>' : '') + '</div>';
     });
     document.getElementById('dashResponses').innerHTML = respHtml;
   } else {
@@ -924,7 +918,7 @@ function saveConfig() {
 }
 
 function clearAll() {
-  alert('To clear responses, delete the rows in your Google Sheet directly.');
+  alert('To clear responses, go to your Airtable base and select/delete the rows.');
 }
 
 // ══════════════════════ GO ══════════════════════
